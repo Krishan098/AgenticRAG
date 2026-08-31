@@ -3,9 +3,8 @@ name = "buildfastwithai"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13.5"
 dependencies = [
-    "chromadb>=1.0.9",
     "faiss-cpu>=1.11.0",
     "langchain[cohere]>=0.3.25",
     "langchain-community>=0.3.24",
@@ -20,5 +19,5 @@ dependencies = [
     "torch>=2.7.0",
     "transformers>=4.51.3",
     "ipykernel>=6.29.5",
-    "langchain-chroma>=0.2.4",
+    "langchain-cohere>=0.6",
 ]
