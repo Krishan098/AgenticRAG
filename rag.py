@@ -1,8 +1,11 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+os.environ.get("CO_API_KEY")
 os.environ.get("COHERE_API_KEY")
 from langchain.chat_models import init_chat_model
 
-llm = init_chat_model("command-r-plus", model_provider='cohere')
+llm = init_chat_model("command-a-plus-05-2026", model_provider='cohere')
 
 from langchain_cohere import CohereEmbeddings
 embeddings = CohereEmbeddings(model="embed-english-v3.0")
@@ -21,7 +24,7 @@ vector_store = FAISS(
     index_to_docstore_id={},    
 )
 
-from langchain import hub
+
 from langchain_community.document_loaders import PyPDFLoader, CSVLoader, TextLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -83,7 +86,7 @@ def retrieve(query: str) -> str:
     )
     return serialized
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, AIMessage
 from langgraph.prebuilt import ToolNode
 
 #Generate an AIMessage that may include a tool-call to be sent.
@@ -99,13 +102,43 @@ def query_or_respond(state: MessagesState):
     Returns:
         A dictionary containing new assistant messages.                           
     """
+    system_message = SystemMessage(
+        "You are an assistant answering questions about a document the "
+        "user has uploaded. For any question that could relate to the "
+        "document's content, use the retrieve tool to search it before "
+        "answering. Only skip retrieval for purely conversational messages "
+        "unrelated to the document."
+    )
+    conversation_messages = [
+        message
+        for message in state["messages"]
+        if message.type in ("human", "system")
+        or (message.type == "ai" and not message.tool_calls)
+    ]
     llm_with_tools = llm.bind_tools([retrieve])
-    response = llm_with_tools.invoke(state["messages"])
+    response = llm_with_tools.invoke([system_message] + conversation_messages)
+    response = clean_ai_message(response)
     return {"messages": [response]}
-
+def extract_text(content):
+    """Extract only the final answer text from a message's content,
+    skipping reasoning/thinking blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = [
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        return "\n".join(text_parts).strip()
+    return str(content)
 #Execute the retrieval
 tools = ToolNode([retrieve])
 
+def clean_ai_message(response:AIMessage)->AIMessage:
+    tool_calls=getattr(response,"tool_calls",[])
+    content="" if tool_calls else extract_text(response.content)
+    return AIMessage(content=content,tool_calls=tool_calls,id=response.id,)
 #Generate a response 
 def generate(state: MessagesState):
     """
@@ -134,7 +167,7 @@ def generate(state: MessagesState):
         "You are an assistant for question-answering tasks. "
         "Use the following pieces of retrieved context to answer "
         "the question. If you don't know the answer, say that you "
-        "don't know. Use three sentences maximum and keep the "
+        "don't know. Use enough sentences that the user is satisfied and keep the "
         "answer concise."
         "\n\n"
         f"{docs_content}"
@@ -146,8 +179,8 @@ def generate(state: MessagesState):
         or (message.type == "ai" and not message.tool_calls)
     ]
     prompt = [SystemMessage(system_message_content)] + conversation_messages
-
-    response = llm.invoke(prompt)
+    response=llm.invoke(prompt)
+    response = clean_ai_message(response)
     return {"messages": [response]}
 
 from langgraph.graph import END
@@ -222,4 +255,3 @@ if __name__ == "__main__":
     with open("output.txt", "w", encoding="utf-8") as f:
         for i, (q, a) in enumerate(qa_pairs, 1):
             f.write(f"Q{i}: {q}\nA{i}: {a}\n\n")
-
